@@ -57,6 +57,4 @@ python main.py --data-path ./dataset/opixray.yaml --epochs 100 --batch-size 4 --
 * `--batch-size`: 批次大小。如果遇到显存不足的错误，可以适当调小这个值（例如 `2`）。
 * `--sr-weights`: 指定要加载哪个Real-ESRGAN模型权重，可以换成 `weights` 文件夹下的任何一个文件名。
 
----
 
-希望这份文档能帮助你快速上手。如果你有任何问题，我们随时可以讨论！
