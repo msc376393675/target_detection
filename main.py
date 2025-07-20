@@ -1,33 +1,37 @@
-# file: main.py
-
 import torch
 import argparse
 from pathlib import Path
 from tqdm import tqdm
+from torch.utils.data import DataLoader
+from utils.datasets import OPIXrayDataset
+import os
+import torch.nn.functional as F
 
 from models.hidef_yolo import HiDefYOLO
-# 假设你已经准备好了OPIXray的数据加载器
-# from data.dataset import create_opixray_dataloader 
 
-# --- 占位符：你需要自己实现这些 ---
-# 在实际项目中，你需要根据你的数据集格式来编写数据加载器和损失函数
-def create_opixray_dataloader(path, batch_size):
-    """一个数据加载器的占位符，你需要替换成真实的实现。"""
-    print("⚠️ 注意: 正在使用占位符数据加载器。")
-    # 模拟返回一些随机数据
-    dummy_dataset = torch.utils.data.TensorDataset(
-        torch.rand(16, 3, 640, 640), # 16张图片
-        torch.rand(16, 100, 5)        # 16组标签 (假设每张图最多100个物体，每个物体有5个值: class, x, y, w, h)
-    )
-    return torch.utils.data.DataLoader(dummy_dataset, batch_size=batch_size, shuffle=True)
+
+
+def create_opixray_dataloader(img_dir, label_dir, batch_size, img_size=640):
+    """真实的OPIXray数据加载器。"""
+    dataset = OPIXrayDataset(img_dir, label_dir, img_size)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
 
 def compute_loss(preds, targets):
-    """一个损失函数的占位符，你需要替换成真实的实现。"""
-    # preds: (refined_logits, refined_bbox_deltas)
-    # targets: 真实的标签
-    # 真实的损失函数需要结合分类损失(如Focal Loss)和回归损失(如CIoU Loss)
-    return torch.tensor(1.0, requires_grad=True) # 返回一个虚拟的损失
-# --- 占位符结束 ---
+    """一个简化的损失函数实现。"""
+    refined_logits, refined_bbox_deltas = preds
+
+    target_classes = targets[..., 0].long()
+    target_boxes = targets[..., 1:]
+
+    # 分类损失 (只对有目标的进行计算)
+    valid_mask = target_classes > -1 # 假设-1是背景/padding
+    loss_cls = F.cross_entropy(refined_logits[valid_mask], target_classes[valid_mask])
+
+    # 回归损失 (只对有目标的进行计算)
+    # TODO: refined_bbox_deltas需要转换成与target_boxes相同的格式
+    loss_bbox = F.l1_loss(refined_bbox_deltas[valid_mask], target_boxes[valid_mask])
+
+    return loss_cls + loss_bbox
 
 
 def train_one_epoch(model, dataloader, optimizer, device, epoch, total_epochs):
@@ -44,13 +48,10 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch, total_epochs):
         # 清零梯度
         optimizer.zero_grad()
         
-        # 前向传播 (在HiDefYOLO中，你需要实现训练模式下的返回值)
+        # 前向传播
         # 假设模型在训练时直接返回损失
         loss = model(images, targets)
         
-        # 如果模型不直接返回loss，则需要手动计算
-        # refined_logits, refined_bbox_deltas = model(images)
-        # loss = compute_loss((refined_logits, refined_bbox_deltas), targets)
         
         # 反向传播
         loss.backward()
@@ -72,9 +73,6 @@ def evaluate(model, dataloader, device):
     model.eval()  # 设置模型为评估模式
     print("\nRunning validation...")
     
-    # 在这里，你需要加入计算mAP等评估指标的逻辑
-    # 这通常比较复杂，可能需要借助第三方库
-    # 这里我们只做一个简单的前向传播演示
     for images, targets in tqdm(dataloader, desc="[Validation]"):
         images = images.to(device)
         # 在评估模式下，模型返回预测结果
@@ -93,22 +91,27 @@ def main(args):
     print(f"Using device: {device}")
 
     # 2. 准备数据集
-    # 用你的真实数据加载器替换这里的占位符
-    train_loader = create_opixray_dataloader(args.data_path, args.batch_size)
-    val_loader = create_opixray_dataloader(args.data_path, args.batch_size) # 通常验证集不打乱
+    print("⌛️ Loading OPIXray dataset...")
+    train_img_dir = os.path.join(args.dataset_root, 'train/train_image')
+    train_label_dir = os.path.join(args.dataset_root, 'train/train_annotation')
+    train_loader = create_opixray_dataloader(train_img_dir, train_label_dir, args.batch_size)
+
+    val_img_dir = os.path.join(args.dataset_root, 'test/test_image')
+    val_label_dir = os.path.join(args.dataset_root, 'test/test_annotation')
+    val_loader = create_opixray_dataloader(val_img_dir, val_label_dir, args.batch_size)
+    print("✅ Dataset loaded.")
     
     # 3. 构建模型
     # HiDefYOLO将自动加载指定的YOLOv9和Real-ESRGAN权重
     model = HiDefYOLO(
         num_classes=args.num_classes,
-        sr_in_channels=args.sr_channels, # 需要与YOLOv9 Neck输出的通道数匹配
+        sr_in_channels=args.sr_channels,
         feature_dim=args.feature_dim,
         yolov9_variant=args.yolo_weights,
-        #sr_model_name=args.sr_weights # 在HiDefYOLO的__init__中添加这个参数来接收
+        sr_model_name=args.sr_weights # 
     ).to(device)
 
     # 4. 定义优化器和学习率调度器
-    # 只优化我们自己添加的模块的参数
     params_to_optimize = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(params_to_optimize, lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-6)
@@ -118,14 +121,12 @@ def main(args):
     for epoch in range(args.epochs):
         train_one_epoch(model, train_loader, optimizer, device, epoch, args.epochs)
         
-        # 在每个epoch后进行评估
-        # val_metrics = evaluate(model, val_loader, device)
         
         # 更新学习率
         scheduler.step()
         
         # TODO: 在这里添加保存模型的逻辑
-        # torch.save(model.state_dict(), f'hidef_yolo_epoch_{epoch+1}.pt')
+        torch.save(model.state_dict(), f'hidef_yolo_epoch_{epoch+1}.pt')
 
     print("\n✅ Training complete!")
 
