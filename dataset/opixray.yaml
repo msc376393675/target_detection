@@ -1,0 +1,5 @@
+# file: datasets/OPIXray/opixray.yaml
+
+# 训练集和验证集的路径
+train: ./datasets/train/train_image/
+val: ./datasets/test/test_image/
