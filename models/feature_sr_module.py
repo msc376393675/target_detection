@@ -4,8 +4,8 @@ import torch.nn.functional as F
 from pathlib import Path
 
 # ----------------------------------------------------------------------
-# 这一部分代码直接来源于你提供的 Real-ESRGAN 仓库
-# 我们将其核心模型 RRDBNet 提取出来，用于特征图增强
+# 这一部分代码直接来源于 Real-ESRGAN 仓库
+# 将其核心模型 RRDBNet 提取出来，用于特征图增强
 # 来源: xinntao/real-esrgan/realesrgan/archs/rrdbnet_arch.py
 # ----------------------------------------------------------------------
 
@@ -93,9 +93,7 @@ class RRDBNet(nn.Module):
         out = self.conv_last(self.lrelu(self.conv_hr(feat)))
         return out
 
-# ----------------------------------------------------------------------
-# 我们的创新封装：Feature Super-Resolution Module
-# ----------------------------------------------------------------------
+
 
 class FeatureSRModule(nn.Module):
     """
@@ -126,7 +124,7 @@ class FeatureSRModule(nn.Module):
         print(f"   - Output Channels: {out_channels}")
         print(f"   - RRDB Blocks: {num_rrdb_blocks}")
 
-        # --- 新增：加载预训练权重 ---
+    
         self.load_pretrained_weights()
 
     def load_pretrained_weights(self):
@@ -150,13 +148,11 @@ class FeatureSRModule(nn.Module):
                 keyname = None
 
             if keyname:
-                 # 因为我们只用了RRDBNet，所以需要适配一下键名
-                 # 原始的键可能是 'model.0.weight', 'model.1.rdb1.conv1.weight' 等
-                 # 我们需要移除 'model.' 这个前缀
+
                 state_dict = loadnet[keyname]
                 adapted_state_dict = {}
                 for k, v in state_dict.items():
-                    # 适配我们的RRDBNet实例 (self.sr_module)
+
                     new_key = k.replace('model.', '') 
                     if new_key in self.sr_module.state_dict():
                         adapted_state_dict[new_key] = v
